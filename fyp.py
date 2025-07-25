@@ -23,7 +23,6 @@ def calculate_discrete_allocation(assets, returns, cov_matrix, investment_amount
     # Clean the weights
     cleaned_weights = ef.clean_weights()
 
-
     # Create a DiscreteAllocation instance
     da = DiscreteAllocation(cleaned_weights, prices, investment_amount)
 
@@ -35,9 +34,6 @@ def calculate_discrete_allocation(assets, returns, cov_matrix, investment_amount
 def calculate_target_allocation(assets, returns, cov_matrix, investment_amount, prices_df, t):
     target_allocation, _ = calculate_discrete_allocation(assets, returns, cov_matrix, investment_amount, prices_df, t)
     return target_allocation
-
-
-
 
 agent_q_tables = defaultdict(lambda: defaultdict(lambda: defaultdict(float)))
 
@@ -112,7 +108,6 @@ class PortfolioEnvironment:
             # Print the weight allocation for each agent after taking an action
             allocations = {asset: agent.allocation.get(asset, 0) for asset in self.assets}
 
-
             # Convert the state to an integer
             state_int = agent.discretize_state(state)
 
@@ -185,7 +180,6 @@ class Agent:
         
         return reward
 
-
     def set_allocation(self, prices_df, t):
         prices = {asset: prices_df[asset].iloc[t] for asset in self.assets}
         target_allocation, _ = calculate_discrete_allocation(self.assets, self.returns, self.cov_matrix, self.initial_investment, prices_df, t)
@@ -214,9 +208,7 @@ class Agent:
         self.allocation = best_allocation
         self.weight_allocation = {asset: allocation * prices[asset] for asset, allocation in self.allocation.items()}
 
-
     def set_max_allocation(self, prices_df, t):
-
         # Calculate the expected returns
         mu = expected_returns.mean_historical_return(prices_df)
 
@@ -240,23 +232,20 @@ class Agent:
         # Store the weights in the agent's weight_allocation attribute
         self.allocation = weights
     
-
     def avg_allocation(self, prices_df, t):
-    # Get the latest prices
+        # Get the latest prices
         prices = {asset: prices_df[asset].iloc[t] for asset in self.assets}
         
         # Calculate the amount to invest in each asset
         investment_per_asset = self.initial_investment / len(self.assets)
         
         # Calculate the weight for each asset based on the latest prices
-        
         weight = {asset: investment_per_asset / prices[asset] for asset in self.assets}
         # Store the weights in the agent's weight_allocation attribute
         self.allocation = weight
         
-
     def choose_action(self, state):
-    # Discretize the state
+        # Discretize the state
         discretized_state = self.discretize_state(state)
 
         # Epsilon-greedy action selection
@@ -271,7 +260,6 @@ class Agent:
         return action
 
     def discretize_state(self, state):
-        
         num_bins = 10  # Increase the number of bins for finer granularity
         
         discretized_state = []
@@ -288,9 +276,6 @@ class Agent:
         discretized_state_int = discretized_state_int % self.q_table.shape[0]
         
         return discretized_state_int
-    
-
-
 
     def take_action(self, action, target_allocations):
         # Calculate the total weight of 'hold' assets
@@ -320,15 +305,8 @@ class Agent:
             elif asset_action == 'sell':
                 trade_weights[asset] = -self.allocation[asset] / total_trade_weight
 
-        
         # Update the allocation by adding the trade weights to the original allocation
         new_allocation = {asset: self.allocation[asset] + trade_weights[asset] for asset in self.assets}
-        
-        # Normalize the new allocation to sum up to 1
-        # total_allocation = sum(new_allocation.values())
-        # new_allocation = {asset: weight / total_allocation for asset, weight in new_allocation.items()}
-        
-
 
         # Allocate any remaining funds to the 'hold' assets
         remaining_weight = 1 - sum(new_allocation.values())
@@ -336,10 +314,6 @@ class Agent:
             for asset in self.assets:
                 if action.get(asset, 'hold') == 'hold':
                     new_allocation[asset] += remaining_weight * (self.allocation[asset] / hold_weight)
-
-        # Ensure allocation remains within bounds
-        # for asset in self.assets:
-        #     new_allocation[asset] = max(min(new_allocation[asset], 1), 0)
 
         # Update the agent's allocation with the new allocation
         self.allocation = new_allocation
@@ -388,47 +362,109 @@ def calculate_roi(agent, prices, initial_allocation, initial_prices):
 
     return roi
 
-
-
-
+# Main execution
 ticker_list = ['INFY.NS','TCS.NS','TATAMOTORS.NS','MARUTI.NS']
-study_prices_df = yf.download(ticker_list, start = '2022-04-01', end = '2023-04-01')['Adj Close']
-prices_df = study_prices_df.resample('W').last()
-print("Initial Prices",get_latest_prices(prices_df))
 
-
-check_df = yf.download(ticker_list, start = '2023-04-01', end = '2023-04-08')['Adj Close']
-prices_df_2 = check_df.resample('W').last()
-
-prices_check = get_latest_prices(prices_df_2)
-print("Current Prices", prices_check)
-
+# Download data with proper error handling
+try:
+    # Download the main study data
+    print("Downloading historical data...")
+    data = yf.download(ticker_list, start='2022-04-01', end='2023-04-01', group_by='ticker')
+    
+    print("Data columns:", data.columns.names if hasattr(data.columns, 'names') else "No MultiIndex")
+    print("Data shape:", data.shape)
+    print("First few columns:", data.columns[:10].tolist() if len(data.columns) > 10 else data.columns.tolist())
+    
+    # Handle different possible data structures
+    if isinstance(data.columns, pd.MultiIndex):
+        # Try 'Adj Close' first, then 'Close'
+        if 'Adj Close' in data.columns.get_level_values(1):
+            study_prices_df = data.xs('Adj Close', level=1, axis=1)
+        elif 'Close' in data.columns.get_level_values(1):
+            study_prices_df = data.xs('Close', level=1, axis=1)
+        else:
+            raise ValueError("Cannot find 'Adj Close' or 'Close' in MultiIndex structure")
+    else:
+        # Single level columns
+        if 'Adj Close' in data.columns:
+            study_prices_df = data[['Adj Close']].copy()
+            study_prices_df.columns = ticker_list[:1]
+        elif 'Close' in data.columns:
+            study_prices_df = data[['Close']].copy()
+            study_prices_df.columns = ticker_list[:1]
+        else:
+            study_prices_df = data.copy()
+    # Ensure index is DatetimeIndex
+    if not isinstance(study_prices_df.index, pd.DatetimeIndex):
+        study_prices_df.index = pd.to_datetime(study_prices_df.index)
+    
+    print("Processed study_prices_df shape:", study_prices_df.shape)
+    print("Study data columns:", study_prices_df.columns.tolist())
+    
+    # Resample to weekly data
+    prices_df = study_prices_df.resample('W').last()
+    
+    print("Initial Prices:", get_latest_prices(prices_df))
+    
+    # Download check data
+    print("Downloading check data...")
+    check_data = yf.download(ticker_list, start='2023-04-01', end='2023-04-08', group_by='ticker')
+    
+    # Handle check data similarly
+    if isinstance(check_data.columns, pd.MultiIndex):
+        if 'Adj Close' in check_data.columns.get_level_values(1):
+            check_df = check_data.xs('Adj Close', level=1, axis=1)
+        elif 'Close' in check_data.columns.get_level_values(1):
+            check_df = check_data.xs('Close', level=1, axis=1)
+        else:
+            raise ValueError("Cannot find 'Adj Close' or 'Close' in MultiIndex structure for check data")
+    else:
+        if 'Adj Close' in check_data.columns:
+            check_df = check_data[['Adj Close']].copy()
+            check_df.columns = ticker_list[:1]
+        elif 'Close' in check_data.columns:
+            check_df = check_data[['Close']].copy()
+            check_df.columns = ticker_list[:1]
+        else:
+            check_df = check_data.copy()
+    # Ensure index is DatetimeIndex
+    if not isinstance(check_df.index, pd.DatetimeIndex):
+        check_df.index = pd.to_datetime(check_df.index)
+    
+    prices_df_2 = check_df.resample('W').last()
+    prices_check = get_latest_prices(prices_df_2)
+    print("Current Prices:", prices_check)
+    
+except Exception as e:
+    print(f"Error downloading data: {e}")
+    print("Data structure debug info:")
+    try:
+        # Try a simple download to see the structure
+        test_data = yf.download(ticker_list[0], start='2022-04-01', end='2022-04-05')
+        print("Single ticker structure:", test_data.columns.tolist())
+        
+        test_data_multi = yf.download(ticker_list[:2], start='2022-04-01', end='2022-04-05')
+        print("Multi ticker structure:", test_data_multi.columns.tolist())
+        print("Multi ticker levels:", test_data_multi.columns.names if hasattr(test_data_multi.columns, 'names') else "No names")
+    except Exception as debug_e:
+        print(f"Debug download failed: {debug_e}")
+    
+    print("Please check your internet connection and ticker symbols")
+    exit()
 
 # Calculate expected returns and covariance matrix that will be used for target allocation
 mu = expected_returns.mean_historical_return(prices_df)
-# print("Expected Returns:" , mu)
 S = risk_models.sample_cov(prices_df)
-# print("Covariance Matrix:" , S)
 returns = prices_df.pct_change()
 volatility = returns.std()
 
-
-# For prices checking
-# print("Initial Prices",prices_df.iloc[0])
-# print("Current Price", prices_check)
-
-# Initialize an empty list to store agents
-agents = []
-
 # Initialize agents
+agents = []
 agent1 = Agent(id=1, assets=ticker_list, returns=mu, cov_matrix=S, initial_investment=100000)
 agent2 = Agent(id=2, assets=ticker_list, returns=mu, cov_matrix=S, initial_investment=150000)
 agent3 = Agent(id=3, assets=ticker_list, returns=mu, cov_matrix=S, initial_investment=200000)
 
-# Add agents to the list
-agents.append(agent1)
-agents.append(agent2)
-agents.append(agent3)
+agents.extend([agent1, agent2, agent3])
 
 # Calculate the total portfolio value
 total_portfolio_value = sum([agent.initial_investment for agent in agents])
@@ -444,8 +480,6 @@ start_prices = {ticker: weekly_prices[ticker].iloc[0] for ticker in ticker_list}
 # Set the allocation for each agent
 for agent in agents:
     agent.set_allocation(prices_df, 0)
-    
-
 
 for agent in agents:
     agent.target_allocation = calculate_target_allocation(agent.assets, agent.returns, agent.cov_matrix, agent.initial_investment, prices_df, 0)
@@ -457,14 +491,13 @@ for agent in agents:
         print(f"Error: Unable to set allocation for agent {agent.id}")
 
 # Run the MARL system for a certain number of time steps
-
 prev_roi = {agent.id: [] for agent in env.agents}
 num_time_steps = len(weekly_prices)
 prev_sum_allocation = {agent.id: 0 for agent in env.agents}
+
 for t in range(num_time_steps):
     prices = {ticker: weekly_prices[ticker].iloc[t] for ticker in ticker_list}
     
-
     states, actions, rewards = env.step(prices_df)
     
     # Check if there are any agents
@@ -474,8 +507,6 @@ for t in range(num_time_steps):
 
     # Print state, action, and reward for each agent
     for i, agent in enumerate(env.agents):
-        
-
         # Use to calculate ROI
         prev_prices = {ticker: weekly_prices[ticker].iloc[num_time_steps-1] for ticker in ticker_list}
         prev_allocation = agent.allocation.copy()
@@ -484,7 +515,6 @@ for t in range(num_time_steps):
         # Convert the state to an integer
         state_int = agent.discretize_state(states[i])
         print(f"State Int: {state_int}")
-        
         
         current_portfolio_value = sum(agent.allocation[asset] * prices[asset] for asset in agent.assets)
         prev_portfolio_value = sum(prev_allocation[asset] * prev_prices[asset] for asset in agent.assets)
@@ -516,7 +546,6 @@ for t in range(num_time_steps):
             new_value = (1 - agent.alpha) * old_value + agent.alpha * (rewards[i] + agent.gamma * next_max)
             agent.q_table[state_int][action_index] = new_value  # Update the Q-table using the action index
 
-
         if distance < 0.1:
             agent.set_allocation(prices_df, t)
         
@@ -526,9 +555,6 @@ for t in range(num_time_steps):
         previous_prices = {ticker: weekly_prices[ticker].iloc[num_time_steps-1] for ticker in ticker_list}
         current_portfolio_value = sum(agent.allocation[asset] * prices_check[asset] for asset in agent.assets)
         
-        
-        
-
         # Ensure all assets are in the allocation and prices
         missing_assets = set(agent.assets) - set(agent.allocation.keys()) - set(prices.keys())
         for asset in missing_assets:
@@ -542,9 +568,6 @@ for t in range(num_time_steps):
             print(f"Agent {agent.id}, ROI: {roi} %")
             print(f"Agent {agent.id}, Previous ROI: {previous_step_roi} %\n")
             prev_roi[agent.id].append(roi)
-
-            
-        
     
     if t == num_time_steps - 1:
         for agent_id, roi in prev_roi.items():
@@ -554,14 +577,12 @@ for t in range(num_time_steps):
         plt.legend()
         plt.show()
 
-
 avg_roi = {agent.id: [] for agent in env.agents}
 max_roi = {agent.id: [] for agent in env.agents}
 
-
 for time_step in range(num_time_steps):
     current_prices = prices_check
-    #Average allocation 
+    # Average allocation 
     for agent in agents:
         agent.avg_allocation(prices_df, 0)
         current_portfolio_value = round(sum(agent.allocation[asset] * prices_check[asset] for asset in agent.assets),2)
@@ -572,7 +593,7 @@ for time_step in range(num_time_steps):
             print(f"Agent {agent.id}, Final ROI: {roi} %")
         avg_roi[agent.id].append(roi)
 
-    #Max allocation:
+    # Max allocation:
     for agent in agents:
         agent.set_max_allocation(prices_df, 0)
         current_portfolio_value = round(sum(agent.allocation[asset] * prices_check[asset] for asset in agent.assets),2)
@@ -582,8 +603,6 @@ for time_step in range(num_time_steps):
             print(f"Agent {agent.id}, Allocation: {agent.allocation}")
             print(f"Agent {agent.id}, Final ROI: {roi} %")
         max_roi[agent.id].append(roi)
-
-
 
 for agent_id in prev_roi.keys():
     plt.figure()  # Create a new figure
@@ -595,12 +614,6 @@ for agent_id in prev_roi.keys():
     plt.title(f'Agent {agent_id}')  # Set the title to the agent's ID
     plt.legend()
     plt.show()
+
 # Reset the environment and agents
-    
-
 env.reset()
-
-
-
-
-
